@@ -1,8 +1,12 @@
 blue={}
 blue.core={}
-blue.R={}
-blue.models={}
+
+//
+// Models
+//
+
 blue.M={}
+blue.models={}
 
 blue.core.Model=function() {
     this.__blue__={};
@@ -22,7 +26,6 @@ blue.core.ModelPrototype={
     }
 }
 blue.core.Model.prototype=blue.core.ModelPrototype;
-
 blue.createModel=function(modelname, prototype) {
     blue.M[modelname]=function() {
         blue.core.Model.call();
@@ -30,6 +33,11 @@ blue.createModel=function(modelname, prototype) {
     blue.M[modelname].prototype=new blue.core.Model();
 }
 
+//
+// Resources
+//
+
+blue.R={}
 blue.core.Resource=function(keys) {
     this.__blue__={};
 
@@ -73,9 +81,15 @@ blue.core.ResourcePrototype={
             this.__blue__.keys.push(key);
         }
     },
+
     parse: function(data) {
         var object=new this.__blue__.model();
         object.setResource(this);
+
+        var pk=object.__blue__.primaryKey;
+        if(pk in data) {
+            object[pk]=data[pk];
+        }
         
         for(var index in this.attributes) {
             key=this.attributes[index];
@@ -122,7 +136,10 @@ blue.core.ResourcePrototype={
 }
 blue.core.Resource.prototype=blue.core.ResourcePrototype;
 
-//// Test Code
+//
+// Test Code
+//
+
 blue.createModel("board", {});
 blue.R.Board=new blue.core.Resource({
     blue_model: blue.M.board,
