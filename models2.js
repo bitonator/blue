@@ -8,17 +8,22 @@ blue.core.extend=function(Base, Derived) {
     return Derived;
 }
 
-blue.core.BaseModel=function() {
+blue.core.BaseModel=function(object) {
+    this.__meta__={};
+    for(var key in object) {
+        value=object[key];
+        if(typeof(value)=="function") {
+            this[key]=value;
+        } else {
+            this.__meta__[key]=value;
+        }
+    }
+    if(!("primaryKey" in this.__meta__)) {
+        this.__meta__.primaryKey="id";
+    }
+    this.preprocess();
 }
 blue.core.BaseModel.prototype={
-    setDescription: function(obj) {
-        this.__meta__=obj;
-        if("primaryKey" in obj)
-            this.__meta__.primaryKey=obj["primaryKey"]
-        else
-            this.__meta__.primaryKey="id";
-        this.preprocess();
-    },
     preprocess: function() {
         this.__meta__.keys=[];
         this.__meta__.parsedAttributes=[];
@@ -70,7 +75,7 @@ blue.core.BaseModel.prototype={
 
         for(var key in this.__meta__.models) {
             var modeldata=data[key];
-            this[key]=this.__meta__.models[key].parse(modeldata);
+            this[key]=new this.__meta__.models[key](modeldata);
         }
     },
 
@@ -80,15 +85,15 @@ blue.core.BaseModel.prototype={
         }, obj)
     },
 
-    prepare:function(model) {
+    prepare: function() {
         var object={};
         for(var key in this.__meta__.keys) {
             attr=this.__meta__.keys[key];
-            if(this.read_only.indexOf(attr)==-1) {
+            if(this.__meta__.read_only.indexOf(attr)==-1) {
                 if(this.__meta__.preparedAttributes.indexOf(attr)!=-1) {
-                    object[attr]= this["prepare_"+attr](model);
+                    object[attr]= this["prepare_"+attr]();
                 } else {
-                    object[attr]=model[attr];
+                    object[attr]=this[attr];
                 }
             } 
         }
@@ -97,28 +102,35 @@ blue.core.BaseModel.prototype={
 }
 
 blue.core.createModel=function(modelname, object) {
-    blue.M[modelname]=blue.core.extend(blue.core.BaseModel, object);
+    blue.M[modelname]=function() {
+        if(arguments[0]) {
+            this.parse(arguments[0]);
+        }
+    }
+    blue.M[modelname].prototype=new blue.core.BaseModel(object);
 }
 
-blue.core.createModel("user", function() {
-    this.parse_board_name=function(data) {
-        return "Board: "+data.board.name;
-    }
-
-    this.prepare_board=function(model) {
-        return model.board.id;
-    }
-
-    this.setDescription({
-        attributes: ["first_name", "last_name"],
-        paths: {"board_id":"board.id"},
-        // this.models: {"board": blue.R.Board},
-        read_only: ["board_id", "board_name"],
-    });
+blue.core.createModel("board", {
+    attributes: ["id", "name"]
 });
 
+blue.core.createModel("user", {
+    attributes: ["first_name", "last_name"],
+    paths: {"board_id":"board.id"},
+    models: {"board": blue.M.board},
+    read_only: ["board_id", "board_name"],
+
+    parse_board_name: function(data) {
+        return "Board: "+data.board.name;
+    },
+
+    prepare_board: function(model) {
+        return this.board.id;
+    },
+
+});
 
 var u=new blue.M.user();
-u.parse({"first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
-console.log(u);
-
+var u2=new blue.M.user({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+console.log(u2);
+console.log(u2.prepare());
