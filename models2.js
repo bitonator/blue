@@ -2,10 +2,11 @@ blue={}
 blue.core={}
 blue.M={}
 
-blue.core.extend=function(Base, Derived) {
-    Derived.prototype=new Base();
-    Derived.prototype.constructor=Derived;
-    return Derived;
+blue.core.Object=function() {
+}
+blue.core.Object.prototype={
+    extend: function() {
+    }
 }
 
 blue.core.BaseModel=function(object) {
@@ -56,26 +57,26 @@ blue.core.BaseModel.prototype={
     parse: function(data) {
         var pk=this.__meta__.primaryKey;
         if(pk in data) {
-            this[pk]=data[pk];
+            this.setAttribute(pk, data[pk]);
         }
         
         for(var index in this.__meta__.attributes) {
             key=this.__meta__.attributes[index];
-            this[key]=data[key];
+            this.setAttribute(key, data[key]);
         }
 
         for(var index in this.__meta__.parsedAttributes) {
             key=this.__meta__.parsedAttributes[index];
-            this[key]=this["parse_"+key](data);
+            this.setAttribute(key, this["parse_"+key](data));
         }
 
         for(var key in this.__meta__.paths) {
-            this[key]=this.resolve(this.__meta__.paths[key], data);
+            this.setAttribute(key, this.resolve(this.__meta__.paths[key], data));
         }
 
         for(var key in this.__meta__.models) {
             var modeldata=data[key];
-            this[key]=new this.__meta__.models[key](modeldata);
+            this.setAttribute(key, new this.__meta__.models[key](modeldata));
         }
     },
 
@@ -98,6 +99,10 @@ blue.core.BaseModel.prototype={
             } 
         }
         return object;
+    },
+
+    setAttribute: function(property, value) {
+       this[property]=value; 
     }
 }
 
