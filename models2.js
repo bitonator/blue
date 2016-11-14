@@ -2,81 +2,92 @@ blue={}
 blue.core={}
 blue.M={}
 
-blue.core.Object=function() {
-}
-blue.core.Object.prototype={
-    extend: function() {
+blue.core.Object={
+    blue: { type: "Object" },
+    init: function() {
+    },
+    init_instance: function(obj) {
+    },
+    extend: function(obj) {
+        var newObj=Object.create(this);
+        for(key in obj) {
+            if(obj.hasOwnProperty(key))
+                newObj[key]=obj[key]
+        }
+        newObj.init();
+        return newObj;
+    },
+    instance: function(obj) {
+        var newObj=Object.create(this);        
+        newObj.init_instance(obj);
+        return newObj;
     }
 }
 
-blue.core.BaseModel=function(object) {
-    this.__meta__={};
-    for(var key in object) {
-        value=object[key];
-        if(typeof(value)=="function") {
-            this[key]=value;
-        } else {
-            this.__meta__[key]=value;
-        }
-    }
-    if(!("primaryKey" in this.__meta__)) {
-        this.__meta__.primaryKey="id";
-    }
-    this.preprocess();
-}
-blue.core.BaseModel.prototype={
+blue.core.Model=blue.core.Object.extend({
+    blue: { type: "Model" },
+    init: function() {
+        console.log(this.blue.type+":init called");
+        this.preprocess();
+    },
+    init_instance: function(obj) {
+        if(obj!=null)
+            this.parse(obj);    
+    },
     preprocess: function() {
-        this.__meta__.keys=[];
-        this.__meta__.parsedAttributes=[];
-        this.__meta__.preparedAttributes=[];
-        for(var index in this.__meta__.attributes) {
-            attr=this.__meta__.attributes[index];
-            this.__meta__.keys.push(attr);
+        this.keys=[];
+        this.parsedAttributes=[];
+        this.preparedAttributes=[];
+        for(var index in this.attributes) {
+            attr=this.attributes[index];
+            this.keys.push(attr);
         }
 
         for(var key in this) {
             if(key.startsWith("parse_")) {
                 attr=key.substring(6);
-                this.__meta__.keys.push(attr);
-                this.__meta__.parsedAttributes.push(attr);
+                this.keys.push(attr);
+                this.parsedAttributes.push(attr);
             }
             if(key.startsWith("prepare_")) {
-                this.__meta__.preparedAttributes.push(key.substring(8));
+                this.preparedAttributes.push(key.substring(8));
             }
         }
 
-        for(var key in this.__meta__.paths) {
-            this.__meta__.keys.push(key); 
+        for(var key in this.paths) {
+            this.keys.push(key); 
         }
 
-        for(var key in this.__meta__.models) {
-            this.__meta__.keys.push(key);
+        for(var key in this.models) {
+            this.keys.push(key);
         }
     },
 
     parse: function(data) {
-        var pk=this.__meta__.primaryKey;
+        var pk=this.primaryKey;
         if(pk in data) {
             this.setAttribute(pk, data[pk]);
         }
         
-        for(var index in this.__meta__.attributes) {
-            key=this.__meta__.attributes[index];
+        for(var index in this.attributes) {
+            key=this.attributes[index];
             this.setAttribute(key, data[key]);
         }
 
-        for(var index in this.__meta__.parsedAttributes) {
-            key=this.__meta__.parsedAttributes[index];
+        for(var index in this.parsedAttributes) {
+            key=this.parsedAttributes[index];
             this.setAttribute(key, this["parse_"+key](data));
         }
 
-        for(var key in this.__meta__.paths) {
-            this.setAttribute(key, this.resolve(this.__meta__.paths[key], data));
+        for(var key in this.paths) {
+            this.setAttribute(key, this.resolve(this.paths[key], data));
         }
 
-        for(var key in this.__meta__.models) {
+        for(var key in this.models) {
             var modeldata=data[key];
-            this.setAttribute(key, new this.__meta__.models[key](modeldata));
+            var model=this.models[key].instance();
+            model.parse(modeldata);
+            this.setAttribute(key, model);
         }
     },
 
@@ -88,10 +99,10 @@ blue.core.BaseModel.prototype={
 
     prepare: function() {
         var object={};
-        for(var key in this.__meta__.keys) {
-            attr=this.__meta__.keys[key];
-            if(this.__meta__.read_only.indexOf(attr)==-1) {
-                if(this.__meta__.preparedAttributes.indexOf(attr)!=-1) {
+        for(var key in this.keys) {
+            attr=this.keys[key];
+            if(this.read_only.indexOf(attr)==-1) {
+                if(this.preparedAttributes.indexOf(attr)!=-1) {
                     object[attr]= this["prepare_"+attr]();
                 } else {
                     object[attr]=this[attr];
@@ -104,22 +115,15 @@ blue.core.BaseModel.prototype={
     setAttribute: function(property, value) {
        this[property]=value; 
     }
-}
+});
 
-blue.core.createModel=function(modelname, object) {
-    blue.M[modelname]=function() {
-        if(arguments[0]) {
-            this.parse(arguments[0]);
-        }
-    }
-    blue.M[modelname].prototype=new blue.core.BaseModel(object);
-}
-
-blue.core.createModel("board", {
+blue.M.board=blue.core.Model.extend({
+    blue: { type: "Board" },
     attributes: ["id", "name"]
 });
 
-blue.core.createModel("user", {
+blue.M.user=blue.core.Model.extend({
+    blue: { type: "User" },
     attributes: ["first_name", "last_name"],
     paths: {"board_id":"board.id"},
     models: {"board": blue.M.board},
@@ -132,10 +136,16 @@ blue.core.createModel("user", {
     prepare_board: function(model) {
         return this.board.id;
     },
-
 });
 
-var u=new blue.M.user();
-var u2=new blue.M.user({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+blue.M.userWithoutBoard=blue.M.user.extend({
+    models: {}
+});
+
+var u=blue.M.user.instance();
+var u2=blue.M.user.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+var u3=blue.M.userWithoutBoard.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
 console.log(u2);
+console.log(u3);
 console.log(u2.prepare());
+console.log(u3.prepare());
