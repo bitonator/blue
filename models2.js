@@ -2,11 +2,15 @@ blue={}
 blue.core={}
 blue.M={}
 
+//
+// Objects
+//
+
 blue.core.Object={
-    blue: { type: "Object" },
+    blue: { type: "Object", listeners: []},
     init: function() {
     },
-    init_instance: function(obj) {
+    initInstance: function(obj) {
     },
     extend: function(obj) {
         var newObj=Object.create(this);
@@ -19,38 +23,99 @@ blue.core.Object={
     },
     instance: function(obj) {
         var newObj=Object.create(this);        
-        newObj.init_instance(obj);
+        newObj.initInstance(obj);
         return newObj;
+    },
+    fire: function(eventName) {
+        handler="on"+eventName;
+        args=Array.prototype.slice.call(arguments, 1)
+        if(handler in this) {
+            this[handler].apply(this, args);
+        }
+        args.unshift(this)
+        for(var index in this.blue.listeners) {
+            listener=listeners[index];
+            if(handler in listener) {
+                listener[handler].apply(listener, args);
+            }
+        } 
+    },
+    camelize: function(str, capitalizeFirstWord) {
+        var pos=str.indexOf("_")
+        if(pos>-1) {
+            var parts=str.split("_");
+            var rv=parts[0];
+            var index=1;
+            if(capitalizeFirstWord) {
+                index=0;
+                rv="";
+            }
+            while(index<parts.length) {
+                part=parts[index]
+                word=part.charAt(0).toUpperCase()+part.slice(1);
+                rv=rv+word;
+                index=index+1;
+            }
+            return rv;
+        } else {
+            if(capitalizeFirstWord)
+                return str.charAt(0).toUpperCase()+str.slice(1);
+            else
+                return str.charAt(0).toLowerCase()+str.slice(1);
+        }
+    },
+    listen: function(obj) {
+        this.blue.listeners.push(obj);
+    },
+    unlisten: function(obj) {
+        pos=this.blue.listeners.indexOf(obj);
+        if(pos>-1) {
+            this.blue.listeners.splice(pos, 1);
+        }
+    },
+    getAttribute: function(property) {
+        return this[this.camelize(property, false)];
+    },
+    setAttribute: function(property, value) {
+       eventName=this.camelize(property, true)+"Change";
+       oldValue=this.getAttribute(property);
+       this[this.camelize(property, false)]=value; 
+       this.fire(eventName, oldValue, value);
     }
+
 }
+
+// 
+// Models
+//
 
 blue.core.Model=blue.core.Object.extend({
     blue: { type: "Model" },
     init: function() {
-        console.log(this.blue.type+":init called");
         this.preprocess();
     },
-    init_instance: function(obj) {
+    initInstance: function(obj) {
         if(obj!=null)
             this.parse(obj);    
     },
     preprocess: function() {
         this.keys=[];
-        this.parsedAttributes=[];
-        this.preparedAttributes=[];
+        this.blue.attributes=[];
+        this.blue.parsedAttributes=[];
+        this.blue.preparedAttributes=[];
         for(var index in this.attributes) {
             attr=this.attributes[index];
             this.keys.push(attr);
         }
 
         for(var key in this) {
-            if(key.startsWith("parse_")) {
-                attr=key.substring(6);
+            if(key.startsWith("parse") && key.length>5) {
+                attr=key.substring(5);
                 this.keys.push(attr);
-                this.parsedAttributes.push(attr);
+                this.blue.parsedAttributes.push(attr);
             }
-            if(key.startsWith("prepare_")) {
-                this.preparedAttributes.push(key.substring(8));
+            if(key.startsWith("prepare") && key.length>7) {
+                this.blue.preparedAttributes.push(key.substring(7));
             }
         }
 
@@ -74,9 +139,9 @@ blue.core.Model=blue.core.Object.extend({
             this.setAttribute(key, data[key]);
         }
 
-        for(var index in this.parsedAttributes) {
-            key=this.parsedAttributes[index];
-            this.setAttribute(key, this["parse_"+key](data));
+        for(var index in this.blue.parsedAttributes) {
+            key=this.blue.parsedAttributes[index];
+            this.setAttribute(key, this["parse"+key](data));
         }
 
         for(var key in this.paths) {
@@ -98,24 +163,25 @@ blue.core.Model=blue.core.Object.extend({
     },
 
     prepare: function() {
-        var object={};
+        var object=blue.core.Object.instance();
         for(var key in this.keys) {
-            attr=this.keys[key];
-            if(this.read_only.indexOf(attr)==-1) {
-                if(this.preparedAttributes.indexOf(attr)!=-1) {
-                    object[attr]= this["prepare_"+attr]();
+            attr=this.camelize(this.keys[key]);
+            if(this.readonly.indexOf(attr)==-1) {
+                if(this.blue.preparedAttributes.indexOf(attr)!=-1) {
+                    object.setAttribute(attr, this["prepare"+attr]());
                 } else {
-                    object[attr]=this[attr];
+                    object.setAttribute(attr, this.getAttribute(attr));
                 }
             } 
         }
         return object;
     },
 
-    setAttribute: function(property, value) {
-       this[property]=value; 
-    }
 });
+
+//
+// Tests
+//
 
 blue.M.board=blue.core.Model.extend({
     blue: { type: "Board" },
@@ -127,19 +193,24 @@ blue.M.user=blue.core.Model.extend({
     attributes: ["first_name", "last_name"],
     paths: {"board_id":"board.id"},
     models: {"board": blue.M.board},
-    read_only: ["board_id", "board_name"],
+    readonly: ["board_id", "board_name"],
 
-    parse_board_name: function(data) {
+    parseBoardName: function(data) {
         return "Board: "+data.board.name;
     },
 
-    prepare_board: function(model) {
+    prepareBoard: function(model) {
         return this.board.id;
     },
+
+    onFirstNameChange: function(oldValue, newValue) {
+        console.log("oldValue: "+oldValue);
+        console.log("newValue: "+newValue);
+    }
 });
 
 blue.M.userWithoutBoard=blue.M.user.extend({
-    models: {}
+    models: {},
 });
 
 var u=blue.M.user.instance();
