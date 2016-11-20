@@ -1,116 +1,162 @@
 blue={}
 blue.core={}
+blue.M={}
 
 //
+// Objects
+//
+
+blue.core.Object={
+    blue: { type: "Object", listeners: []},
+    init: function() {
+    },
+    initInstance: function() {
+    },
+    extend: function(obj) {
+        var newObj=Object.create(this);
+        for(key in obj) {
+            if(obj.hasOwnProperty(key))
+                newObj[key]=obj[key]
+        }
+        newObj.init();
+        return newObj;
+    },
+    instance: function() {
+        var newObj=Object.create(this);        
+        newObj.initInstance.apply(newObj, arguments);
+        return newObj;
+    },
+    fire: function(eventName) {
+        handler="on"+eventName;
+        args=Array.prototype.slice.call(arguments, 1)
+        if(handler in this) {
+            this[handler].apply(this, args);
+        }
+        args.unshift(this)
+        for(var index in this.blue.listeners) {
+            listener=listeners[index];
+            if(handler in listener) {
+                listener[handler].apply(listener, args);
+            }
+        } 
+    },
+    camelize: function(str, capitalizeFirstWord) {
+        var pos=str.indexOf("_")
+        if(pos>-1) {
+            var parts=str.split("_");
+            var rv=parts[0];
+            var index=1;
+            if(capitalizeFirstWord) {
+                index=0;
+                rv="";
+            }
+            while(index<parts.length) {
+                part=parts[index]
+                word=part.charAt(0).toUpperCase()+part.slice(1);
+                rv=rv+word;
+                index=index+1;
+            }
+            return rv;
+        } else {
+            if(capitalizeFirstWord)
+                return str.charAt(0).toUpperCase()+str.slice(1);
+            else
+                return str.charAt(0).toLowerCase()+str.slice(1);
+        }
+    },
+    listen: function(obj) {
+        this.blue.listeners.push(obj);
+    },
+    unlisten: function(obj) {
+        pos=this.blue.listeners.indexOf(obj);
+        if(pos>-1) {
+            this.blue.listeners.splice(pos, 1);
+        }
+    },
+    getAttribute: function(property) {
+        return this[this.camelize(property, false)];
+    },
+    setAttribute: function(property, value) {
+       eventName=this.camelize(property, true)+"Change";
+       oldValue=this.getAttribute(property);
+       this[this.camelize(property, false)]=value; 
+       this.fire(eventName, oldValue, value);
+    },
+    loadAttribute: function(property, value) {
+       this[this.camelize(property, false)]=value; 
+    }
+
+}
+
+// 
 // Models
 //
 
-blue.M={}
-blue.models={}
-
-blue.core.Model=function() {
-    this.__blue__={};
-    this.__blue__.primaryKey="id";
-    this[this.__blue__.primaryKey]=null;
-}
-blue.core.ModelPrototype={
-    setResource: function(resource) {
-        this.__blue__.resource=resource;
+blue.core.Model=blue.core.Object.extend({
+    blue: { type: "Model" },
+    init: function() {
+        this.preprocess();
     },
-    save: function() {
-        if(this[this.__blue__.primaryKey]==null) {
-            console.log("Model create not implemented yet!");
-        } else {
-            console.log("Model update not implemented yet!");
-        }
-    }
-}
-blue.core.Model.prototype=blue.core.ModelPrototype;
-blue.createModel=function(modelname, prototype) {
-    blue.M[modelname]=function() {
-        blue.core.Model.call();
-    }
-    blue.M[modelname].prototype=new blue.core.Model();
-}
-
-//
-// Resources
-//
-
-blue.R={}
-blue.core.Resource=function(keys) {
-    this.__blue__={};
-
-    for(var key in keys) {
-        if(key.startsWith("blue_")) {
-            attr=key.substring(5);
-            this.__blue__[attr]=keys[key];
-        } else {
-            this[key]=keys[key];
-        }
-    }
-
-    this.preprocess();
-}
-blue.core.ResourcePrototype={
+    initInstance: function(obj) {
+        if(obj!=null)
+            this.parse(obj);    
+    },
     preprocess: function() {
-        this.__blue__.keys=[];
-        this.__blue__.parsedAttributes=[];
-        this.__blue__.preparedAttributes=[];
+        this.keys=[];
+        this.blue.attributes=[];
+        this.blue.parsedAttributes=[];
+        this.blue.preparedAttributes=[];
         for(var index in this.attributes) {
             attr=this.attributes[index];
-            this.__blue__.keys.push(attr);
+            this.keys.push(attr);
         }
 
         for(var key in this) {
-            if(key.startsWith("parse_")) {
-                attr=key.substring(6);
-                this.__blue__.keys.push(attr);
-                this.__blue__.parsedAttributes.push(attr);
+            if(key.startsWith("parse") && key.length>5) {
+                attr=key.substring(5);
+                this.keys.push(attr);
+                this.blue.parsedAttributes.push(attr);
             }
-            if(key.startsWith("prepare_")) {
-                this.__blue__.preparedAttributes.push(key.substring(8));
+            if(key.startsWith("prepare") && key.length>7) {
+                this.blue.preparedAttributes.push(key.substring(7));
             }
         }
 
         for(var key in this.paths) {
-            this.__blue__.keys.push(key); 
+            this.keys.push(key); 
         }
 
         for(var key in this.models) {
-            this.__blue__.keys.push(key);
+            this.keys.push(key);
         }
     },
 
     parse: function(data) {
-        var object=new this.__blue__.model();
-        object.setResource(this);
-
-        var pk=object.__blue__.primaryKey;
+        var pk=this.primaryKey;
         if(pk in data) {
-            object[pk]=data[pk];
+            this.setAttribute(pk, data[pk]);
         }
         
         for(var index in this.attributes) {
             key=this.attributes[index];
-            object[key]=data[key];
+            this.loadAttribute(key, data[key]);
         }
 
-        for(var index in this.__blue__.parsedAttributes) {
-            key=this.__blue__.parsedAttributes[index];
-            object[key]=this["parse_"+key](data);
+        for(var index in this.blue.parsedAttributes) {
+            key=this.blue.parsedAttributes[index];
+            this.loadAttribute(key, this["parse"+key](data));
         }
 
         for(var key in this.paths) {
-            object[key]=this.resolve(this.paths[key], data);
+            this.loadAttribute(key, this.resolve(this.paths[key], data));
         }
 
         for(var key in this.models) {
             var modeldata=data[key];
-            object[key]=this.models[key].parse(modeldata);
+            var model=this.models[key].instance();
+            model.parse(modeldata);
+            this.loadAttribute(key, model);
         }
-
-        return object;
     },
 
     resolve: function(path, obj) {
@@ -119,51 +165,177 @@ blue.core.ResourcePrototype={
         }, obj)
     },
 
-    prepare:function(model) {
-        var object={};
-        for(var key in this.__blue__.keys) {
-            attr=this.__blue__.keys[key];
-            if(this.read_only.indexOf(attr)==-1) {
-                if(this.__blue__.preparedAttributes.indexOf(attr)!=-1) {
-                    object[attr]= this["prepare_"+attr](model);
+    prepare: function() {
+        var object=blue.core.Object.instance();
+        for(var key in this.keys) {
+            attr=this.camelize(this.keys[key]);
+            if(this.readonly.indexOf(attr)==-1) {
+                if(this.blue.preparedAttributes.indexOf(attr)!=-1) {
+                    object.loadAttribute(attr, this["prepare"+attr]());
                 } else {
-                    object[attr]=model[attr];
+                    object.loadAttribute(attr, this.getAttribute(attr));
                 }
             } 
         }
         return object;
+    },
+
+});
+
+//
+// Resources
+//
+
+blue.core.AjaxRequest=blue.core.Object.extend({
+    blue: { type: "Resource" },
+    initInstance: function(tag, url) {
+        this.request=new XMLHttpRequest();
+        this.tag=tag || "ajax";
+        this.url=url;
+        this.queryParams="";
+    },
+    getXMLHttpRequest: function() {
+        return this.request;
+    },
+    setHeader: function(header, value) {
+        this.request.setRequestHeader(header, value);
+    },
+    getHeader: function(header) {
+        this.request.getResponseHeader(header);
+    },
+    addQueryParams: function(params) {
+        str="";
+        for(var key in params) {
+            str=str+key+"="+encodeURI(params[key])+"&"
+        }
+        this.queryParams=this.queryParams+str.slice(0, -1)
+    }, 
+    encode: function(params) {
+        str="";
+        for(var key in params) {
+            str=str+key+"="+encodeURI(params[key])+"&"
+        }
+        return str.slice(0, -1)
+    },
+    sendRequest(method, data) {
+        var self=this;
+        this.request.onreadystatechange=function() {
+            self.onReadyStateChange(self, this);
+        }
+        if(this.queryParams=="") {
+            this.request.open(method, this.url, true); 
+        } else {
+            if(this.url.indexOf("?")!=-1) {
+                this.request.open(method, this.url+"&"+encodeURI(this.queryParams), true); 
+            } else {
+                this.request.open(method, this.url+"?"+encodeURI(this.queryParams), true); 
+            }
+        }
+        this.request.send(data);
+    }, 
+    get: function(params) {
+        this.addQueryParams(params);
+        this.sendRequest("GET", null);
+    }, 
+    post: function(params) {
+        this.sendRequest("POST", this.encode(params));
+    },
+    del: function(params) {
+        this.sendRequest("DELETE", url, null);
+    },
+    put: function(params) {
+        this.sendRequest("PUT", this.encode(params));
+    },
+    patch: function(params) {
+        this.sendRequest("PATCH", this.encode(params));
+    },
+    head: function() {
+        this.sendRequest("HEAD");
+    },
+    options: function() {
+        this.sendRequest("OPTIONS");
+    },
+    connect: function() {
+        this.sendRequest("CONNECT");
+    },
+    onReadyStateChange: function() {
+        eventPrefix=this.camelize(this.tag, true);
+        switch(this.request.readyState) {
+            case 0:
+                this.fire(eventPrefix+"NotInitialized");
+                break;
+            case 1:
+                this.fire(eventPrefix+"ConnectionEstablished");
+                break;
+            case 2:
+                this.fire(eventPrefix+"RequestReceived");
+                break;
+            case 3:
+                this.fire(eventPrefix+"ProcessingRequest");
+                break;
+            case 4:
+                if(this.request.status>=200 && this.request.status<300)
+                    this.status=this.request.status;
+                    this.statusMessage=this.request.statusText;
+                    this.response=this.request.response;
+                    this.fire(eventPrefix+"Loaded")
+                if(this.request.status>=400)
+                    this.fire(eventPrefix+"Failed")
+        }      
     }
-}
-blue.core.Resource.prototype=blue.core.ResourcePrototype;
+});
 
 //
-// Test Code
+// Tests
 //
 
-blue.createModel("board", {});
-blue.R.Board=new blue.core.Resource({
-    blue_model: blue.M.board,
+blue.M.board=blue.core.Model.extend({
+    blue: { type: "Board" },
     attributes: ["id", "name"]
 });
 
-blue.createModel("user", {});
-blue.R.User=new blue.core.Resource({
-    blue_model: blue.M.user,
+blue.M.user=blue.core.Model.extend({
+    blue: { type: "User" },
     attributes: ["first_name", "last_name"],
     paths: {"board_id":"board.id"},
-    models: {"board": blue.R.Board},
-    read_only: ["board_id", "board_name"],
+    models: {"board": blue.M.board},
+    readonly: ["board_id", "board_name"],
 
-    parse_board_name: function(data) {
-        return "Board: "+data.board.name;
+    parseBoardName: function(data) {
+        if("board" in data)
+            return "Board: "+data.board.name;
+        else 
+            return;
     },
 
-    prepare_board: function(model) {
-        return model.board.id;
+    prepareBoard: function(model) {
+        return this.board.id;
+    },
+
+    onFirstNameChange: function(oldValue, newValue) {
+        console.log("oldValue: "+oldValue);
+        console.log("newValue: "+newValue);
     }
 });
 
-var u=blue.R.User.parse({"first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
-console.log(u);
-var v=blue.R.User.prepare(u);
-console.log(v);
+blue.M.userWithoutBoard=blue.M.user.extend({
+    models: {},
+});
+
+var u=blue.M.user.instance();
+var u2=blue.M.user.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+var u3=blue.M.userWithoutBoard.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+console.log(u2);
+console.log(u3);
+console.log(u2.prepare());
+console.log(u3.prepare());
+
+var request=blue.core.AjaxRequest.instance("user", "http://reqres.in/api/users/1");
+request.onUserLoaded=function() {
+    var data=JSON.parse(this.response);
+    console.log(data.data);
+    var user=blue.M.userWithoutBoard.instance(data.data);
+    console.log(user);
+}
+request.get();
+
