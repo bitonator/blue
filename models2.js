@@ -10,7 +10,7 @@ blue.core.Object={
     blue: { type: "Object", listeners: []},
     init: function() {
     },
-    initInstance: function(obj) {
+    initInstance: function() {
     },
     extend: function(obj) {
         var newObj=Object.create(this);
@@ -21,9 +21,9 @@ blue.core.Object={
         newObj.init();
         return newObj;
     },
-    instance: function(obj) {
+    instance: function() {
         var newObj=Object.create(this);        
-        newObj.initInstance(obj);
+        newObj.initInstance.apply(newObj, arguments);
         return newObj;
     },
     fire: function(eventName) {
@@ -81,6 +81,9 @@ blue.core.Object={
        oldValue=this.getAttribute(property);
        this[this.camelize(property, false)]=value; 
        this.fire(eventName, oldValue, value);
+    },
+    loadAttribute: function(property, value) {
+       this[this.camelize(property, false)]=value; 
     }
 
 }
@@ -136,23 +139,23 @@ blue.core.Model=blue.core.Object.extend({
         
         for(var index in this.attributes) {
             key=this.attributes[index];
-            this.setAttribute(key, data[key]);
+            this.loadAttribute(key, data[key]);
         }
 
         for(var index in this.blue.parsedAttributes) {
             key=this.blue.parsedAttributes[index];
-            this.setAttribute(key, this["parse"+key](data));
+            this.loadAttribute(key, this["parse"+key](data));
         }
 
         for(var key in this.paths) {
-            this.setAttribute(key, this.resolve(this.paths[key], data));
+            this.loadAttribute(key, this.resolve(this.paths[key], data));
         }
 
         for(var key in this.models) {
             var modeldata=data[key];
             var model=this.models[key].instance();
             model.parse(modeldata);
-            this.setAttribute(key, model);
+            this.loadAttribute(key, model);
         }
     },
 
@@ -168,15 +171,118 @@ blue.core.Model=blue.core.Object.extend({
             attr=this.camelize(this.keys[key]);
             if(this.readonly.indexOf(attr)==-1) {
                 if(this.blue.preparedAttributes.indexOf(attr)!=-1) {
-                    object.setAttribute(attr, this["prepare"+attr]());
+                    object.loadAttribute(attr, this["prepare"+attr]());
                 } else {
-                    object.setAttribute(attr, this.getAttribute(attr));
+                    object.loadAttribute(attr, this.getAttribute(attr));
                 }
             } 
         }
         return object;
     },
 
+});
+
+//
+// Resources
+//
+
+blue.core.AjaxRequest=blue.core.Object.extend({
+    blue: { type: "Resource" },
+    initInstance: function(tag, url) {
+        this.request=new XMLHttpRequest();
+        this.tag=tag || "ajax";
+        this.url=url;
+        this.queryParams="";
+    },
+    getXMLHttpRequest: function() {
+        return this.request;
+    },
+    setHeader: function(header, value) {
+        this.request.setRequestHeader(header, value);
+    },
+    getHeader: function(header) {
+        this.request.getResponseHeader(header);
+    },
+    addQueryParams: function(params) {
+        str="";
+        for(var key in params) {
+            str=str+key+"="+encodeURI(params[key])+"&"
+        }
+        this.queryParams=this.queryParams+str.slice(0, -1)
+    }, 
+    encode: function(params) {
+        str="";
+        for(var key in params) {
+            str=str+key+"="+encodeURI(params[key])+"&"
+        }
+        return str.slice(0, -1)
+    },
+    sendRequest(method, data) {
+        var self=this;
+        this.request.onreadystatechange=function() {
+            self.onReadyStateChange(self, this);
+        }
+        if(this.queryParams=="") {
+            this.request.open(method, this.url, true); 
+        } else {
+            if(this.url.indexOf("?")!=-1) {
+                this.request.open(method, this.url+"&"+encodeURI(this.queryParams), true); 
+            } else {
+                this.request.open(method, this.url+"?"+encodeURI(this.queryParams), true); 
+            }
+        }
+        this.request.send(data);
+    }, 
+    get: function(params) {
+        this.addQueryParams(params);
+        this.sendRequest("GET", null);
+    }, 
+    post: function(params) {
+        this.sendRequest("POST", this.encode(params));
+    },
+    del: function(params) {
+        this.sendRequest("DELETE", url, null);
+    },
+    put: function(params) {
+        this.sendRequest("PUT", this.encode(params));
+    },
+    patch: function(params) {
+        this.sendRequest("PATCH", this.encode(params));
+    },
+    head: function() {
+        this.sendRequest("HEAD");
+    },
+    options: function() {
+        this.sendRequest("OPTIONS");
+    },
+    connect: function() {
+        this.sendRequest("CONNECT");
+    },
+    onReadyStateChange: function() {
+        eventPrefix=this.camelize(this.tag, true);
+        switch(this.request.readyState) {
+            case 0:
+                this.fire(eventPrefix+"NotInitialized");
+                break;
+            case 1:
+                this.fire(eventPrefix+"ConnectionEstablished");
+                break;
+            case 2:
+                this.fire(eventPrefix+"RequestReceived");
+                break;
+            case 3:
+                this.fire(eventPrefix+"ProcessingRequest");
+                break;
+            case 4:
+                if(this.request.status>=200 && this.request.status<300)
+                    this.status=this.request.status;
+                    this.statusMessage=this.request.statusText;
+                    this.response=this.request.response;
+                    this.fire(eventPrefix+"Loaded")
+                if(this.request.status>=400)
+                    this.fire(eventPrefix+"Failed")
+        }      
+    }
 });
 
 //
@@ -196,7 +302,10 @@ blue.M.user=blue.core.Model.extend({
     readonly: ["board_id", "board_name"],
 
     parseBoardName: function(data) {
-        return "Board: "+data.board.name;
+        if("board" in data)
+            return "Board: "+data.board.name;
+        else 
+            return;
     },
 
     prepareBoard: function(model) {
@@ -220,3 +329,13 @@ console.log(u2);
 console.log(u3);
 console.log(u2.prepare());
 console.log(u3.prepare());
+
+var request=blue.core.AjaxRequest.instance("user", "http://reqres.in/api/users/1");
+request.onUserLoaded=function() {
+    var data=JSON.parse(this.response);
+    console.log(data.data);
+    var user=blue.M.userWithoutBoard.instance(data.data);
+    console.log(user);
+}
+request.get();
+
