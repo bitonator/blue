@@ -8,9 +8,9 @@ blue.M={}
 
 blue.core.Object={
     blue: { type: "Object", listeners: []},
-    init: function() {
+    onExtend: function() {
     },
-    initInstance: function() {
+    onCreate: function() {
     },
     extend: function(obj) {
         var newObj=Object.create(this);
@@ -18,12 +18,14 @@ blue.core.Object={
             if(obj.hasOwnProperty(key))
                 newObj[key]=obj[key]
         }
-        newObj.init();
+        newObj.fire("Extend", newObj);
         return newObj;
     },
-    instance: function() {
+    create: function() {
         var newObj=Object.create(this);        
-        newObj.initInstance.apply(newObj, arguments);
+        args=Array.prototype.slice.call(arguments);
+        args.unshift("Create");
+        newObj.fire.apply(newObj, args);
         return newObj;
     },
     fire: function(eventName) {
@@ -84,8 +86,7 @@ blue.core.Object={
     },
     loadAttribute: function(property, value) {
        this[this.camelize(property, false)]=value; 
-    }
-
+    },
 }
 
 // 
@@ -94,12 +95,13 @@ blue.core.Object={
 
 blue.core.Model=blue.core.Object.extend({
     blue: { type: "Model" },
-    init: function() {
+    onExtend: function() {
         this.preprocess();
     },
-    initInstance: function(obj) {
-        if(obj!=null)
+    onCreate: function(obj) {
+        if(obj!=null) {
             this.parse(obj);    
+        }
     },
     preprocess: function() {
         this.keys=[];
@@ -153,7 +155,7 @@ blue.core.Model=blue.core.Object.extend({
 
         for(var key in this.models) {
             var modeldata=data[key];
-            var model=this.models[key].instance();
+            var model=this.models[key].create();
             model.parse(modeldata);
             this.loadAttribute(key, model);
         }
@@ -166,7 +168,7 @@ blue.core.Model=blue.core.Object.extend({
     },
 
     prepare: function() {
-        var object=blue.core.Object.instance();
+        var object=blue.core.Object.create();
         for(var key in this.keys) {
             attr=this.camelize(this.keys[key]);
             if(this.readonly.indexOf(attr)==-1) {
@@ -188,7 +190,7 @@ blue.core.Model=blue.core.Object.extend({
 
 blue.core.AjaxRequest=blue.core.Object.extend({
     blue: { type: "Resource" },
-    initInstance: function(tag, url) {
+    onCreate: function(tag, url) {
         this.request=new XMLHttpRequest();
         this.tag=tag || "ajax";
         this.url=url;
@@ -322,19 +324,20 @@ blue.M.userWithoutBoard=blue.M.user.extend({
     models: {},
 });
 
-var u=blue.M.user.instance();
-var u2=blue.M.user.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
-var u3=blue.M.userWithoutBoard.instance({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+var u=blue.M.user.create();
+var u2=blue.M.user.create({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+var u3=blue.M.userWithoutBoard.create({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+console.log(u);
 console.log(u2);
 console.log(u3);
 console.log(u2.prepare());
 console.log(u3.prepare());
 
-var request=blue.core.AjaxRequest.instance("user", "http://reqres.in/api/users/1");
+var request=blue.core.AjaxRequest.create("user", "http://reqres.in/api/users/1");
 request.onUserLoaded=function() {
     var data=JSON.parse(this.response);
     console.log(data.data);
-    var user=blue.M.userWithoutBoard.instance(data.data);
+    var user=blue.M.userWithoutBoard.create(data.data);
     console.log(user);
 }
 request.get();
