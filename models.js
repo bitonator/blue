@@ -1,17 +1,21 @@
 blue={}
-blue.core={}
-blue.M={}
 
 //
 // Objects
 //
 
-blue.core.Object={
+blue.Object={
     meta: { type: "Object" },
 
     onObjectExtend: function() {
     },
-    onObjectCreate: function() {
+    onObjectCreate: function(obj) {
+        for(key in obj) {
+            if(obj.hasOwnProperty(key)) {
+                this[key]=obj[key]
+            }
+        }
+        return this;
     },
     extend: function(obj) {
         var newObj=Object.create(this);
@@ -24,6 +28,7 @@ blue.core.Object={
         newObj.__listeners__=[];
         newObj.__properties__=[];
         newObj.fire("ObjectExtend", newObj);
+        newObj.Super=this;
         return newObj;
     },
     mixin: function(obj) {
@@ -85,9 +90,19 @@ blue.core.Object={
             obj.__listeners__.splice(pos, 1);
         }
     },
-    loadAttribute: function(propertyName, value) {
+    load: function(propertyName, value) {
         var property=this.camelize(propertyName, false);
         this[property]=value; 
+    },
+    get: function(propertyName, value) {
+        var property=this.camelize(propertyName, false);
+        return this[property]
+    },
+    set: function(propertyName, value) {
+        var property=this.camelize(propertyName, false);
+        var oldValue=this[property];
+        this[property]=value; 
+        this.fire(this.camelize(propertyName, true)+"Change", oldValue, value);
     },
     getObjectType: function() {
         if(this.hasOwnProperty("meta")) {
@@ -115,11 +130,11 @@ blue.core.Object={
 // Models
 //
 
-blue.core.Model=blue.core.Object.extend({
+blue.Model=blue.Object.extend({
     meta: { type: "Model" },
     getObjectName: function() {
         if(!this.isInstance()) {
-            return blue.core.Object.getObjectName.apply(this);
+            return blue.Object.getObjectName.apply(this);
         } else 
             if(this.meta.primaryKey in this)
                 return this.meta.type+":"+this[this.meta.primaryKey];
@@ -131,9 +146,12 @@ blue.core.Model=blue.core.Object.extend({
         this.preprocess();
     },
     onObjectCreate: function(obj) {
-        if(obj!=null) {
-            this.parse(obj);    
+        this.Super.onObjectCreate(obj);
+        if("data" in this) {
+            this.parse(this.data);    
         }
+
+        return this;
     },
     preprocess: function() {
         this.meta.keys=[];
@@ -178,28 +196,28 @@ blue.core.Model=blue.core.Object.extend({
     parse: function(data) {
         var pk=this.meta.primaryKey;
         if(pk in data) {
-            this.loadAttribute(pk, data[pk]);
+            this.load(pk, data[pk]);
         }
         
         for(var index in this.meta.attributes) {
             var key=this.meta.attributes[index];
-            this.loadAttribute(key, data[key]);
+            this.load(key, data[key]);
         }
 
         for(var index in this.meta.parsedAttributes) {
             var key=this.meta.parsedAttributes[index];
-            this.loadAttribute(key, this["parse"+key](data));
+            this.load(key, this["parse"+key](data));
         }
 
         for(var key in this.meta.paths) {
-            this.loadAttribute(key, this.resolve(this.meta.paths[key], data));
+            this.load(key, this.resolve(this.meta.paths[key], data));
         }
 
         for(var key in this.meta.models) {
             var modeldata=data[key];
             var model=this.meta.models[key].create();
             model.parse(modeldata);
-            this.loadAttribute(key, model);
+            this.load(key, model);
         }
     },
 
@@ -210,14 +228,14 @@ blue.core.Model=blue.core.Object.extend({
     },
 
     prepare: function() {
-        var object=blue.core.Object.create();
+        var object=blue.Object.create();
         for(var key in this.meta.keys) {
             var attr=this.camelize(this.meta.keys[key]);
             if(this.readonly.indexOf(attr)==-1) {
                 if(this.meta.preparedAttributes.indexOf(attr)!=-1) {
-                    object.loadAttribute(attr, this["prepare"+attr]());
+                    object.load(attr, this["prepare"+attr]());
                 } else {
-                    object.loadAttribute(attr, this[attr]);
+                    object.load(attr, this[attr]);
                 }
             } 
         }
@@ -230,75 +248,31 @@ blue.core.Model=blue.core.Object.extend({
 // Resources
 //
 
-blue.core.AjaxRequest=blue.core.Object.extend({
-    meta: { type: "AjaxRequest" },
-    onObjectCreate: function(tag, url) {
+blue.Http=blue.Object.extend({
+    meta: { type: "Http" },
+    onObjectCreate: function(setup) {
+        this.Super.onObjectCreate(setup);
+        this.setup();
         this.request=new XMLHttpRequest();
-        this.tag=tag || "ajax";
-        this.url=url;
-        this.queryParams="";
     },
-    getObjectName: function() {
-        if(!this.isInstance()) {
-            return blue.core.Object.getObjectName.apply(this);
-        } else {
-            return this.meta.type+":"+this.tag;
+    setup: function() {
+        if(typeof this.url!="string") {
+            throw "bad URL";
+        }
+        if(this.method==undefined) {
+            this.method="GET";
         }
     },
-    getXMLHttpRequest: function() {
-        return this.request;
-    },
-    setHeader: function(header, value) {
-        this.request.setRequestHeader(header, value);
-    },
-    getHeader: function(header) {
-        this.request.getResponseHeader(header);
-    },
-    addQueryParams: function(params) {
-        var str="";
-        for(var key in params) {
-            str=str+key+"="+encodeURI(params[key])+"&"
-        }
-        this.queryParams=this.queryParams+str.slice(0, -1)
-    }, 
-    encode: function(params) {
-        var str="";
-        for(var key in params) {
-            str=str+key+"="+encodeURI(params[key])+"&"
-        }
-        return str.slice(0, -1)
-    },
-    sendRequest(method, data) {
+    send: function() {
         var self=this;
         this.request.onreadystatechange=function() {
             self.onReadyStateChange(self, this);
         }
-        if(this.queryParams=="") {
-            this.request.open(method, this.url, true); 
-        } else {
-            if(this.url.indexOf("?")!=-1) {
-                this.request.open(method, this.url+"&"+encodeURI(this.queryParams), true); 
-            } else {
-                this.request.open(method, this.url+"?"+encodeURI(this.queryParams), true); 
-            }
+        for(var header in this.headers) {
+            request.setRequestHeader(header, this.headers[header]);
         }
-        this.request.send(data);
-    }, 
-    get: function(params) {
-        this.addQueryParams(params);
-        this.sendRequest("GET", null);
-    }, 
-    post: function(params) {
-        this.sendRequest("POST", this.encode(params));
-    },
-    del: function(params) {
-        this.sendRequest("DELETE", url, null);
-    },
-    put: function(params) {
-        this.sendRequest("PUT", this.encode(params));
-    },
-    patch: function(params) {
-        this.sendRequest("PATCH", this.encode(params));
+        this.request.open(this.method, encodeURI(this.url), true);
+        this.request.send(this.body);
     },
     onReadyStateChange: function() {
         switch(this.request.readyState) {
@@ -322,30 +296,24 @@ blue.core.AjaxRequest=blue.core.Object.extend({
                     this.fire("Loaded")
                 if(this.request.status>=400)
                     this.fire("Failed")
-        }      
+        } 
     }
 });
-
-//
-// Components
-//
-
-
 
 //
 // Tests
 //
 
-blue.M.board=blue.core.Model.extend({
+board=blue.Model.extend({
     meta: { type: "Board" },
     attributes: ["id", "name"]
 });
 
-blue.M.user=blue.core.Model.extend({
+user=blue.Model.extend({
     meta: { type: "User" },
     attributes: ["first_name", "last_name"],
     paths: {"board_id":"board.id"},
-    models: {"board": blue.M.board},
+    models: {"board": board},
     readonly: ["board_id", "board_name"],
 
     parseBoardName: function(data) {
@@ -365,37 +333,81 @@ blue.M.user=blue.core.Model.extend({
     }
 });
 
-blue.M.userWithoutBoard=blue.M.user.extend({
+userWithoutBoard=user.extend({
     models: {},
 });
 
-var u=blue.M.user.create();
-var u2=blue.M.user.create({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
-var u3=blue.M.userWithoutBoard.create({"id": 3, "first_name":"Mahadevan", "last_name": "K", "board": { id: 2, name: "ICSE"}});
+var u=user.create();
+var u2=user.create({
+    data: {
+        id: 3, 
+        first_name:"Mahadevan", 
+        last_name: "K", 
+        board: { 
+            id: 2, 
+            name: "ICSE"
+        }
+    }
+});
+var u3=userWithoutBoard.create({ 
+    data: {
+        id: 3, 
+        first_name:"Mahadevan", 
+        last_name: "K", 
+        board: { 
+            id: 2, 
+            name: "ICSE"
+        }
+    },
+    onLastNameChange: function(oldValue, newValue) {
+        console.log("oldValue: "+oldValue);
+        console.log("newValue: "+newValue);
+    }
+});
 
 console.log(u);
 console.log(u2);
 console.log(u3);
 console.log(u2.prepare());
 console.log(u3.prepare());
+u3.set("lastName", "P");
+u3.set("firstName", "Maha");
 
-var request=blue.core.AjaxRequest.create("user", "http://reqres.in/api/users/1");
-request.onLoaded=function() {
-    var data=JSON.parse(this.response);
-    console.log(data.data);
-    var user=blue.M.userWithoutBoard.create(data.data);
-    console.log(user);
-}
-b=blue.core.Object.create({
+request=blue.Http.create({ 
+    url: "http://google.com",
+    onLoaded: function() {
+        console.log("Got response");
+    }
+}).send();
+
+/*
+userResource=blue.Rest.extend({
+    url: "some-url",
+    model: user,
+    headers: {
+    },
+    params: {
+        path: [ "id" ],
+        query: [ "limit", "offset" ]
+    },
+    response: {
+        collection_key: "",
+        object_key: "",
+    },
+    limit: 20,
+    onListLoaded: 
+    onObjectLoaded:
+    onCreate
+    onUpdate
+    onDelete
+    onFailure
 });
-b.listenTo(request);
-b.getObjectName=function() {
-    return "b";
-}
-b.onLoaded=function(obj) {
-    this.log("Got on loaded event");
-}
-request.get();
 
+r=userResource.create()
 
+r.list({
+});
 
+users=r.nextPage();
+users=r.prevPage();
+*/
