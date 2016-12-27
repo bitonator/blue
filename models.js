@@ -10,11 +10,6 @@ blue.Object={
     onObjectExtend: function() {
     },
     onObjectCreate: function(obj) {
-        for(key in obj) {
-            if(obj.hasOwnProperty(key)) {
-                this[key]=obj[key]
-            }
-        }
         return this;
     },
     extend: function(obj) {
@@ -34,10 +29,17 @@ blue.Object={
     mixin: function(obj) {
         Object.assign(this, obj);
     },
-    create: function() {
+    create: function(obj) {
         var objTemplate=Object.create(this);
         var newObj=Object.create(objTemplate);        
         var args=Array.prototype.slice.call(arguments);
+        if(obj!=null) {
+            for(key in obj) {
+                if(obj.hasOwnProperty(key)) {
+                    newObj[key]=obj[key]
+                }
+            }
+        }
         args.unshift("ObjectCreate");
         objTemplate.__listeners__=[];
         newObj.fire.apply(newObj, args);
@@ -146,7 +148,6 @@ blue.Model=blue.Object.extend({
         this.preprocess();
     },
     onObjectCreate: function(obj) {
-        this.Super.onObjectCreate(obj);
         if("data" in this) {
             this.parse(this.data);    
         }
@@ -251,17 +252,16 @@ blue.Model=blue.Object.extend({
 blue.Http=blue.Object.extend({
     meta: { type: "Http" },
     onObjectCreate: function(setup) {
-        this.Super.onObjectCreate(setup);
-        this.setup();
-        this.request=new XMLHttpRequest();
-    },
-    setup: function() {
         if(typeof this.url!="string") {
-            throw "bad URL";
+            throw "bad URL: "+this.url;
         }
         if(this.method==undefined) {
             this.method="GET";
         }
+
+        this.request=new XMLHttpRequest();
+    },
+    setup: function() {
     },
     send: function() {
         var self=this;
@@ -373,12 +373,14 @@ console.log(u3.prepare());
 u3.set("lastName", "P");
 u3.set("firstName", "Maha");
 
-request=blue.Http.create({ 
+var request=blue.Http.create({ 
     url: "http://google.com",
     onLoaded: function() {
         console.log("Got response");
     }
-}).send();
+});
+
+request.send();
 
 /*
 userResource=blue.Rest.extend({
